@@ -22,8 +22,8 @@ DATASET_SRC="${SCRATCH}/datasets/gems/GeMS_A10.hdf5"
 RUN_REPO_DIR="${SLURM_TMPDIR}/DreaMS"
 RUN_DATASET_PTH="${SLURM_TMPDIR}/GeMS_A10.hdf5"
 
-project_name="SSL_VAL_4.0"
-job_key="my_pre_training_run"
+project_name="dreams"
+job_key="${SLURM_JOB_ID}_$(date +'%m-%d_%H-%M')"
 max_epochs="${1:-3000}"
 
 WANDB_API_KEY_FILE="${REPO_DIR}/wandb_api.txt"
@@ -50,8 +50,8 @@ wandb login "$(cat "${WANDB_API_KEY_FILE}")"
 # --- Sync checkpoints back to scratch, periodically and on exit ---
 # ModelCheckpoint (train.py) writes every 1000 steps with save_top_k=-1 (keeps all),
 # under a path relative to cwd, so it lands in ${RUN_REPO_DIR}/dreams/${project_name}/${job_key}.
-CKPT_DIR="${DREAMS_DIR}/${project_name}/${job_key}"
-CKPT_DIR_SCRATCH="${SCRATCH}/dreams_runs/${project_name}/${job_key}"
+CKPT_DIR="${DREAMS_DIR}/${job_key}"
+CKPT_DIR_SCRATCH="${SCRATCH}/dreams_runs/${job_key}"
 mkdir -p "${CKPT_DIR_SCRATCH}"
 
 sync_back() {
@@ -83,7 +83,7 @@ cd "${DREAMS_DIR}" || exit 3
 #
 # Replace `python3 training/train.py` with `srun --export=ALL --preserve-env python3 training/train.py \`
 # when executing on a SLURM cluster via `sbatch`.
-python3 training/train.py \
+uv run training/train.py \
  --project_name "${project_name}" \
  --job_key "${job_key}" \
  --run_name "${job_key}" \
@@ -130,4 +130,5 @@ python3 training/train.py \
  --mz_shift_aug_max 50 \
  --pre_norm \
  --graphormer_mz_diffs \
- --ret_order_loss_w 0.2
+ --ret_order_loss_w 0.2 \
+ --wandb_entity_name sabrina-du-mcgill-university \
