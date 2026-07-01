@@ -63,15 +63,13 @@ Run the following code from the command line.
 git clone https://github.com/pluskal-lab/DreaMS.git
 cd DreaMS
 
-# Create conda environment
-conda create -n dreams python==3.11.0 --yes
-conda activate dreams
-
-# Install DreaMS
-pip install -e .
+# Install DreaMS (creates a .venv and installs dependencies)
+uv sync
 ```
 
-If you are not familiar with conda or do not have it installed, please refer to the [official documentation](https://conda.io/projects/conda/en/latest/user-guide/getting-started.html).
+This project uses [uv](https://docs.astral.sh/uv/) to manage its Python environment and dependencies. If you don't have uv installed, refer to the [official installation guide](https://docs.astral.sh/uv/getting-started/installation/).
+
+Activate the environment with `source .venv/bin/activate`, or prefix commands with `uv run` (e.g. `uv run python`) to run them inside it without activating.
 
 ### Compute DreaMS representations
 
