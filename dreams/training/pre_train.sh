@@ -4,6 +4,10 @@
 #SBATCH --gpus-per-node=h100:1
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
+#SBATCH --output=/home/sabrina7/scratch/dreams_runs/DreaMS_pre-training_result_%j.out
+#SBATCH --error=/home/sabrina7/scratch/dreams_runs/DreaMS_pre-training_result_%j.err
+#SBATCH --mail-user=sabrina.du@mail.mcgill.ca
+#SBATCH --mail-type=BEGIN,END,FAIL
 
 set -euo pipefail
 
@@ -20,6 +24,7 @@ RUN_DATASET_PTH="${SLURM_TMPDIR}/GeMS_A10.hdf5"
 
 project_name="SSL_VAL_4.0"
 job_key="my_pre_training_run"
+max_epochs="${1:-3000}"
 
 WANDB_API_KEY_FILE="${REPO_DIR}/wandb_api.txt"
 if [ ! -s "${WANDB_API_KEY_FILE}" ]; then
@@ -96,7 +101,7 @@ python3 training/train.py \
  --ff_out_depth 1 \
  --prec_intens 1.1 \
  --num_devices 1 \
- --max_epochs 3000 \
+ --max_epochs "${max_epochs}" \
  --log_every_n_steps 20 \
  --seed 3402 \
  --n_layers 7 \
