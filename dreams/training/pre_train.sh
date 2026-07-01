@@ -1,33 +1,90 @@
 #!/bin/bash
-#SBATCH --job-name DreaMS_pre-training
-#SBATCH --account OPEN-29-57
-#SBATCH --partition qgpu
-#SBATCH --nodes 1
-#SBATCH --gpus 8
-#SBATCH --time 24:00:00
+#SBATCH --job-name=DreaMS_pre-training
+#SBATCH --account=def-hsn
+#SBATCH --gpus-per-node=h100:1
+#SBATCH --mem=64G
+#SBATCH --time=24:00:00
 
-# Activate conda environment
-eval "$(conda shell.bash hook)"
-conda activate dreams
+set -euo pipefail
 
-# Export project definitions
+# --- Config ---------------------------------------------------------------
+# Persistent clone of this repo.
+REPO_DIR="${HOME}/experiments/DreaMS"
+
+# Persistent location of the pre-training dataset (lives outside the repo).
+DATASET_SRC="${SCRATCH}/datasets/gems/GeMS_A10.hdf5"
+
+# Fast node-local copies used for the run.
+RUN_REPO_DIR="${SLURM_TMPDIR}/DreaMS"
+RUN_DATASET_PTH="${SLURM_TMPDIR}/GeMS_A10.hdf5"
+
+project_name="SSL_VAL_4.0"
+job_key="my_pre_training_run"
+
+WANDB_API_KEY_FILE="${REPO_DIR}/wandb_api.txt"
+if [ ! -s "${WANDB_API_KEY_FILE}" ]; then
+    echo "Wandb API key file not found or empty: ${WANDB_API_KEY_FILE}" >&2
+    exit 1
+fi
+
+# --- Copy repo and dataset to node-local storage for speed ---
+rsync -a --exclude='.git' --exclude='.venv' "${REPO_DIR}/" "${RUN_REPO_DIR}/"
+cp "${DATASET_SRC}" "${RUN_DATASET_PTH}"
+cd "${RUN_REPO_DIR}"
+
+# --- Build env locally and activate it ---
+uv sync --frozen
+source .venv/bin/activate
+
+# --- Export project definitions ---
 $(python -c "from dreams.definitions import export; export()")
+
+# --- wandb auth (non-interactive, key read from file) ---
+wandb login "$(cat "${WANDB_API_KEY_FILE}")"
+
+# --- Sync checkpoints back to scratch, periodically and on exit ---
+# ModelCheckpoint (train.py) writes every 1000 steps with save_top_k=-1 (keeps all),
+# under a path relative to cwd, so it lands in ${RUN_REPO_DIR}/dreams/${project_name}/${job_key}.
+CKPT_DIR="${DREAMS_DIR}/${project_name}/${job_key}"
+CKPT_DIR_SCRATCH="${SCRATCH}/dreams_runs/${project_name}/${job_key}"
+mkdir -p "${CKPT_DIR_SCRATCH}"
+
+sync_back() {
+    rsync -a "${CKPT_DIR}/" "${CKPT_DIR_SCRATCH}/" 2>/dev/null || true
+}
+
+(
+    while true; do
+        sleep 1200  # 20 min
+        sync_back
+    done
+) &
+sync_loop_pid=$!
+
+cleanup() {
+    kill "${sync_loop_pid}" 2>/dev/null || true
+    echo "Syncing checkpoints back to ${CKPT_DIR_SCRATCH}..."
+    sync_back
+}
+trap cleanup EXIT TERM INT
 
 # Move to running dir
 cd "${DREAMS_DIR}" || exit 3
 
-job_key="my_pre_training_run"
-
-# Run the training script
+# --- Run the training script ---
+# For an interactive smoke test before submitting: salloc a GPU node (SLURM_TMPDIR
+# is set there too), run everything above by hand, then run this same command with
+# --max_epochs 1 and --num_devices set to whatever your interactive allocation has.
+#
 # Replace `python3 training/train.py` with `srun --export=ALL --preserve-env python3 training/train.py \`
 # when executing on a SLURM cluster via `sbatch`.
 python3 training/train.py \
- --project_name SSL_VAL_4.0 \
+ --project_name "${project_name}" \
  --job_key "${job_key}" \
  --run_name "${job_key}" \
  --frac_masks 0.3 \
  --train_regime pre-training \
- --dataset_pth "${GEMS_DIR}/GeMS_A/GeMS_A10.hdf5" \
+ --dataset_pth "${RUN_DATASET_PTH}" \
  --val_check_interval 0.1 \
  --train_objective mask_mz_hot \
  --hot_mz_bin_size 0.05 \
@@ -38,7 +95,7 @@ python3 training/train.py \
  --ff_fourier_d 512 \
  --ff_out_depth 1 \
  --prec_intens 1.1 \
- --num_devices 8 \
+ --num_devices 1 \
  --max_epochs 3000 \
  --log_every_n_steps 20 \
  --seed 3402 \
