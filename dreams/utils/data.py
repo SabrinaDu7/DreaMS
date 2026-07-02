@@ -1918,6 +1918,9 @@ class CVDataModule(pl.LightningDataModule):
         self.num_workers = num_workers
         self.train_fold = None
         self.val_fold = None
+        self._loader_kwargs = dict(pin_memory=True)
+        if self.num_workers > 0:
+            self._loader_kwargs.update(persistent_workers=True, prefetch_factor=4)
 
     def setup_fold_index(self, fold_i: int) -> None:
         self.train_fold = Subset(self.dataset, self.fold_idx[self.fold_idx != fold_i].index.values)
@@ -1927,10 +1930,12 @@ class CVDataModule(pl.LightningDataModule):
         return self.fold_idx.nunique()
 
     def train_dataloader(self) -> DataLoader:
-        return DataLoader(self.train_fold, shuffle=True, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(self.train_fold, shuffle=True, batch_size=self.batch_size, num_workers=self.num_workers,
+                          **self._loader_kwargs)
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(self.val_fold, shuffle=False, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(self.val_fold, shuffle=False, batch_size=self.batch_size, num_workers=self.num_workers,
+                          **self._loader_kwargs)
 
 
 class RandomSplitDataModule(pl.LightningDataModule):
@@ -1944,6 +1949,9 @@ class RandomSplitDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.val_frac = val_frac
         self.num_workers = num_workers
+        self._loader_kwargs = dict(pin_memory=True)
+        if self.num_workers > 0:
+            self._loader_kwargs.update(persistent_workers=True, prefetch_factor=4)
 
         val_size = round(val_frac * len(dataset))
         train_size = len(dataset) - val_size
@@ -1956,14 +1964,15 @@ class RandomSplitDataModule(pl.LightningDataModule):
                 self.max_var_features[self.train_subset.indices],
                 batch_size=self.batch_size
             )
-            return DataLoader(self.train_subset, batch_sampler=batch_sampler, num_workers=self.num_workers, shuffle=True)
+            return DataLoader(self.train_subset, batch_sampler=batch_sampler, num_workers=self.num_workers, shuffle=True,
+                              **self._loader_kwargs)
         else:
             return DataLoader(self.train_subset, num_workers=self.num_workers, batch_size=self.batch_size, shuffle=True,
-                              drop_last=True)
+                              drop_last=True, **self._loader_kwargs)
 
     def val_dataloader(self) -> DataLoader:
         return DataLoader(self.val_subset, drop_last=True, batch_size=self.batch_size, num_workers=self.num_workers,
-                          shuffle=False)
+                          shuffle=False, **self._loader_kwargs)
 
     def test_dataloader(self):
         return
@@ -1980,6 +1989,9 @@ class SplittedDataModule(pl.LightningDataModule):
         self.include_val_in_train = include_val_in_train
         self.n_train_samples = n_train_samples
         self.seed = seed
+        self._loader_kwargs = dict(pin_memory=True)
+        if self.num_workers > 0:
+            self._loader_kwargs.update(persistent_workers=True, prefetch_factor=4)
 
         if not isinstance(split_mask, pd.Series) and not isinstance(split_mask, np.ndarray):
             split_mask = pd.Series(split_mask)
@@ -2021,17 +2033,20 @@ class SplittedDataModule(pl.LightningDataModule):
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(self.train_subset, shuffle=True, drop_last=True, num_workers=self.num_workers,
-                          batch_size=self.batch_size if self.batch_size else len(self.train_subset))
+                          batch_size=self.batch_size if self.batch_size else len(self.train_subset),
+                          **self._loader_kwargs)
 
     def val_dataloader(self) -> DataLoader:
         if self.val_subset:
             return DataLoader(self.val_subset, shuffle=False, drop_last=False, num_workers=self.num_workers,
-                              batch_size=self.batch_size if self.batch_size else len(self.val_subset))
+                              batch_size=self.batch_size if self.batch_size else len(self.val_subset),
+                              **self._loader_kwargs)
 
     def test_dataloader(self) -> DataLoader:
         if self.test_subset:
             return DataLoader(self.test_subset, shuffle=False, drop_last=False, num_workers=self.num_workers,
-                              batch_size=self.batch_size if self.batch_size else len(self.test_subset))
+                              batch_size=self.batch_size if self.batch_size else len(self.test_subset),
+                              **self._loader_kwargs)
 
 
 class SSLProbingValidation(pl.Callback):
