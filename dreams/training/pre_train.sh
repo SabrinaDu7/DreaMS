@@ -2,6 +2,7 @@
 #SBATCH --job-name=DreaMS_pre-training
 #SBATCH --account=def-hsn
 #SBATCH --gpus-per-node=h100:1
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
 #SBATCH --output=/home/sabrina7/scratch/dreams_runs/DreaMS_pre-training_result_%j.out
@@ -104,6 +105,7 @@ uv run training/train.py \
  --ff_out_depth 1 \
  --prec_intens 1.1 \
  --num_devices 1 \
+ --num_workers_data 8 \
  --max_epochs "${max_epochs}" \
  --log_every_n_steps 20 \
  --seed 3402 \
