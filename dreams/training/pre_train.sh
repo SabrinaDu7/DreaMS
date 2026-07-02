@@ -38,6 +38,9 @@ cp "${DATASET_SRC}" "${RUN_DATASET_PTH}"
 cd "${RUN_REPO_DIR}"
 
 # --- Build env locally and activate it ---
+# Keep uv's cache on the same node-local filesystem as the venv so it can
+# hardlink instead of copying package files (faster, avoids the warning below).
+export UV_CACHE_DIR="${SLURM_TMPDIR}/uv-cache"
 uv sync --frozen
 source .venv/bin/activate
 

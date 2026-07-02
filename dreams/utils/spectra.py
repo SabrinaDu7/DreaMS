@@ -1,23 +1,25 @@
-import numpy as np
-import torch
-import torch.nn.functional as F
-from numba import njit
-# import pyopenms as pyms
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import rdkit.Chem.Descriptors as rdkitDescriptors
-from matchms import Spectrum
-from matchms.similarity import ModifiedCosineGreedy as ModifiedCosine
+from typing import Iterable, List, Union
+
 import matplotlib
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+
+# import pyopenms as pyms
+import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import dreams.utils.misc as utils
+import numpy as np
 import plotly.graph_objs as go
-from typing import List, Union, Iterable
-from dreams.utils.misc import get_closest_values, contains_similar
-from dreams.utils.mols import mol_to_formula, formula_to_dict
-from dreams.utils.plots import init_plotting, save_fig, get_nature_hex_colors
+import rdkit.Chem.Descriptors as rdkitDescriptors
+import torch
+import torch.nn.functional as F
+from matchms import Spectrum
+from matchms.similarity import ModifiedCosineGreedy as ModifiedCosine
+from numba import njit
+
+import dreams.utils.misc as utils
+from dreams.utils.misc import contains_similar, get_closest_values
+from dreams.utils.mols import formula_to_dict, mol_to_formula
+from dreams.utils.plots import get_nature_hex_colors, init_plotting, save_fig
 
 # Terms:
 # - raw peak list - i.e. '53.0379 0.894101\n54.0335 0.661867\n'
@@ -38,17 +40,22 @@ def parse_raw_peak_list(peak_list: str):
     e.g. '53.0379 0.894101\n54.0335 0.661867\n' -> ([53.0379, 54.0335], [0.894101, 0.661867])
     """
     try:
-        peak_list = [peak.split(' ') for peak in peak_list.split('\n')]
+        peak_list = [peak.split(" ") for peak in peak_list.split("\n")]
         # Select only m/z, intensity pairs (NIST20 may contain additional annotations)
         peak_list = [(peak[0], peak[1]) for peak in peak_list]
         peak_list = np.array(peak_list, dtype=float)
         peak_list = peak_list.T
         return peak_list
     except Exception as e:
-        print(f'Invalid peak list {peak_list}')
+        print(f"Invalid peak list {peak_list}")
 
 
-def is_valid_peak_list(peak_list: np.array, relative_intensities=True, verbose=None, return_problems_list=False):
+def is_valid_peak_list(
+    peak_list: np.array,
+    relative_intensities=True,
+    verbose=None,
+    return_problems_list=False,
+):
     """
     Returns True if peak list is valid (Numbers of m/z and intensity values are equal,
     m/z values are sorted in ascending order etc.), else False.
@@ -72,35 +79,37 @@ def is_valid_peak_list(peak_list: np.array, relative_intensities=True, verbose=N
 
     predicates_evals = [
         # 1) Peak least must have peaks
-        predicate_eval(mzs.size != 0 and intensities.size != 0, 'No peaks'),
+        predicate_eval(mzs.size != 0 and intensities.size != 0, "No peaks"),
         # 2) Numbers of m/z and intensity values must be equal
-        predicate_eval(len(mzs) == len(intensities), '#mzs != #intensities'),
+        predicate_eval(len(mzs) == len(intensities), "#mzs != #intensities"),
         # 3) All intensities must be non-zero
-        predicate_eval((intensities != 0.0).all(), 'Exists intensity = 0.0'),
+        predicate_eval((intensities != 0.0).all(), "Exists intensity = 0.0"),
         # 4) All intensities must be positive (overlaps with 3 but better for more verbose output)
-        predicate_eval((intensities >= 0.0).all(), 'Exists intensity < 0.0'),
+        predicate_eval((intensities >= 0.0).all(), "Exists intensity < 0.0"),
         # 5) M/z values must be positive
-        predicate_eval((mzs > 0).all(), 'Exists m/z <= 0.0'),
+        predicate_eval((mzs > 0).all(), "Exists m/z <= 0.0"),
         # 6) M/z values must be sorted in ascending order
-        predicate_eval((mzs[:-1] <= mzs[1:]).all(), 'M/z values are not sorted'),
+        predicate_eval((mzs[:-1] <= mzs[1:]).all(), "M/z values are not sorted"),
         # 7) All m/z values must be unique
-        predicate_eval(np.unique(mzs).size == mzs.size, 'M/z values are not unique')
+        predicate_eval(np.unique(mzs).size == mzs.size, "M/z values are not unique"),
     ]
 
     if relative_intensities:
-        predicates_evals.extend([
-            # 8) All intensities must be <= 1. (relative intensities)
-            predicate_eval((intensities <= 1.).all(), 'Exists intensity > 1.'),
-            # 9) Spectrum must have base peak
-            predicate_eval((intensities == 1.).any(), 'No base peak'),
-        ])
+        predicates_evals.extend(
+            [
+                # 8) All intensities must be <= 1. (relative intensities)
+                predicate_eval((intensities <= 1.0).all(), "Exists intensity > 1."),
+                # 9) Spectrum must have base peak
+                predicate_eval((intensities == 1.0).any(), "No base peak"),
+            ]
+        )
 
     problems_list = [e for e in predicates_evals if e]
 
     if problems_list:
-        if verbose == 'problems' or verbose == 'problems_and_peak_list':
-            print('Problems:', problems_list)
-        if verbose == 'problems_and_peak_list':
+        if verbose == "problems" or verbose == "problems_and_peak_list":
+            print("Problems:", problems_list)
+        if verbose == "problems_and_peak_list":
             print(peak_list)
 
     if return_problems_list:
@@ -113,12 +122,7 @@ def is_valid_peak_list(peak_list: np.array, relative_intensities=True, verbose=N
 
 
 # TODO: refactor. It is old and is used only in MassIVE process_ms_file and spectra libs analysis.
-def process_peak_list(
-        peak_list,
-        n_highest=None,
-        sort_mzs=False,
-        to_rel_intens=False
-):
+def process_peak_list(peak_list, n_highest=None, sort_mzs=False, to_rel_intens=False):
     mzs = peak_list[0]
     intensities = peak_list[1]
 
@@ -141,7 +145,9 @@ def process_peak_list(
     return np.array([mzs, intensities])
 
 
-def pad_peak_list(pl: np.ndarray, target_len: int, pad_val: float = 0, axis: int = -1) -> np.ndarray:
+def pad_peak_list(
+    pl: np.ndarray, target_len: int, pad_val: float = 0, axis: int = -1
+) -> np.ndarray:
     """
     Pads peak list to the `target_len` with `pad_val` or performs this for a batch of peak lists.
     :param pl: Peak list of shape (2, num_peaks) or a batch of peak lists of shape (batch_size, 2, num_peaks).
@@ -155,7 +161,7 @@ def pad_peak_list(pl: np.ndarray, target_len: int, pad_val: float = 0, axis: int
 
     npad = [(0, 0)] * pl.ndim
     npad[axis] = (0, pad_size)
-    return np.pad(pl, pad_width=npad, mode='constant', constant_values=pad_val)
+    return np.pad(pl, pad_width=npad, mode="constant", constant_values=pad_val)
 
 
 def unpad_peak_list(peak_list: np.array, pad_val=0.0):
@@ -181,7 +187,9 @@ def trim_peak_list(peak_list: np.array, n_highest: int):
     highest_peaks_idx = np.sort(highest_peaks_idx, axis=-1)
 
     # Use advanced indexing to select the highest peaks
-    selected_peak_lists = peak_list[np.arange(len(peak_list))[:, np.newaxis], :, highest_peaks_idx]
+    selected_peak_lists = peak_list[
+        np.arange(len(peak_list))[:, np.newaxis], :, highest_peaks_idx
+    ]
 
     # Transpose the output to match the original shape (ChatGPT cannot come up with better solution for indexing)
     selected_peak_lists = selected_peak_lists.transpose(0, 2, 1)
@@ -240,17 +248,24 @@ def get_peak_intens_nbhd(peak_list, peak_i, intens_thld, intens_thld_below=True)
     consecutive peaks above (or below if intens_thld_below=False) the intens_thld intensity.
     """
 
-    if (intens_thld_below and peak_list[1][peak_i] > intens_thld) or \
-            (not intens_thld_below and peak_list[1][peak_i] < intens_thld):
-        raise ValueError('Intensity at peak_i does not satisfy intens_thld.')
+    if (intens_thld_below and peak_list[1][peak_i] > intens_thld) or (
+        not intens_thld_below and peak_list[1][peak_i] < intens_thld
+    ):
+        raise ValueError("Intensity at peak_i does not satisfy intens_thld.")
 
-    thld_mask = np.concatenate([
-        [False],
-        peak_list[1] < intens_thld if intens_thld_below else peak_list[1] > intens_thld,
-        [False]
-    ])
-    bp_min_i = peak_i - np.argmin(np.flip(thld_mask[:peak_i + 1]))  # np.argmin detects the first False element
-    bp_max_i = peak_i + np.argmin(thld_mask[peak_i + 2:])
+    thld_mask = np.concatenate(
+        [
+            [False],
+            peak_list[1] < intens_thld
+            if intens_thld_below
+            else peak_list[1] > intens_thld,
+            [False],
+        ]
+    )
+    bp_min_i = peak_i - np.argmin(
+        np.flip(thld_mask[: peak_i + 1])
+    )  # np.argmin detects the first False element
+    bp_max_i = peak_i + np.argmin(thld_mask[peak_i + 2 :])
     return bp_min_i, bp_max_i
 
 
@@ -265,6 +280,7 @@ def num_high_peaks(peak_list, high_intensity_thld):
 def max_mz(peak_list):
     return peak_list[0].max()
 
+
 @njit()
 def _bin_peak_list(peak_list: np.array, max_mz: float, bin_step: float) -> list:
     mzs, intensities = peak_list
@@ -273,8 +289,10 @@ def _bin_peak_list(peak_list: np.array, max_mz: float, bin_step: float) -> list:
     num_bins = int(max_mz / bin_step)
 
     binned_pl = []
-    for _ in range(num_bins):  # Iterate over number of bins to avoid floating point errors
-        bin_intensity = 0.
+    for _ in range(
+        num_bins
+    ):  # Iterate over number of bins to avoid floating point errors
+        bin_intensity = 0.0
         for i, mz in enumerate(mzs):
             if bin_ub - bin_step <= mz < bin_ub:
                 bin_intensity += intensities[i]
@@ -304,7 +322,9 @@ def to_rel_intensity(peak_list: np.array, scale_factor=None):
     return pl
 
 
-def merge_peak_lists(peak_lists: List[np.array], eps=1e-2, n_highest_peaks=None) -> np.array:
+def merge_peak_lists(
+    peak_lists: List[np.array], eps=1e-2, n_highest_peaks=None
+) -> np.array:
     """
     Merges peak lists without creating new "artificial" m/z values. The algorithm traverses all peaks (from all spectra)
     descendingly ordered by their intensities and create merged peaks by summing up intensities of all peaks in the
@@ -343,16 +363,19 @@ def merge_peak_lists(peak_lists: List[np.array], eps=1e-2, n_highest_peaks=None)
                 visited[j] = 1
 
         # Create merged peak
-        merged_pl.append([
-            pls[0, peak_idx[0]],  # M/z of the highest peak
-            sum(pls[1, k] for k in peak_idx)  # Sum of intensities
-        ])
+        merged_pl.append(
+            [
+                pls[0, peak_idx[0]],  # M/z of the highest peak
+                sum(pls[1, k] for k in peak_idx),  # Sum of intensities
+            ]
+        )
 
     # Sort merged peak list by m/z values
     merged_pl = np.array(merged_pl).T
     merged_pl = merged_pl[:, np.argsort(merged_pl[0])]
 
     return merged_pl
+
 
 # ----------------------------- #
 # Processing of high peak lists #
@@ -382,18 +405,20 @@ def normalize_mzs(peak_list: np.array, max_mz: float, in_place=True, high=False)
 
 class MSnSpectrum:
     def __init__(
-            self,
-            peak_list,
-            precursor_mol=None,
-            precursor_mz=None,
-            precursor_charge=None,
-            ionization_mode=None,
-            collision_energy=None,
-            assert_is_valid=True
+        self,
+        peak_list,
+        precursor_mol=None,
+        precursor_mz=None,
+        precursor_charge=None,
+        ionization_mode=None,
+        collision_energy=None,
+        assert_is_valid=True,
     ):
 
         if assert_is_valid:
-            assert is_valid_peak_list(peak_list, verbose='problems_and_peak_list'), 'Peak list is not valid'
+            assert is_valid_peak_list(peak_list, verbose="problems_and_peak_list"), (
+                "Peak list is not valid"
+            )
 
         super(MSnSpectrum, self).__init__()
 
@@ -443,21 +468,21 @@ class MSnSpectrum:
 
 
 def plot_spectrum(
-        spec,
-        hue=None,
-        xlim=None,
-        ylim=None,
-        mirror_spec=None,
-        highl_idx=None,
-        high_peaks_at=None,
-        figsize=(6, 2),
-        colors=None,
-        save_pth=None,
-        prec_mz=None,
-        mirror_prec_mz=None,
-        normalize_intensities=True,
-        spec_text=None,
-        mirror_spec_text=None
+    spec,
+    hue=None,
+    xlim=None,
+    ylim=None,
+    mirror_spec=None,
+    highl_idx=None,
+    high_peaks_at=None,
+    figsize=(6, 2),
+    colors=None,
+    save_pth=None,
+    prec_mz=None,
+    mirror_prec_mz=None,
+    normalize_intensities=True,
+    spec_text=None,
+    mirror_spec_text=None,
 ):
     """
     TODO: Whole function should be refactored, it is a mess.
@@ -480,13 +505,13 @@ def plot_spectrum(
     - mirror_spec_text: Text to display on the mirror spectrum.
     """
 
-    if colors == 'nature':
+    if colors == "nature":
         colors = get_nature_hex_colors()
         colors = [colors[1], colors[0], colors[2]]
     elif colors is not None:
         assert len(colors) >= 3
     else:
-        colors = ['blue', 'green', 'red']
+        colors = ["blue", "green", "red"]
 
     fast_path = (
         hue is None
@@ -504,7 +529,9 @@ def plot_spectrum(
     def process_spectrum(s):
         # Check if spectrum has correct shape and transpose if necessary
         if len(s.shape) != 2:
-            raise ValueError('Spectrum must have shape (2, num_peaks) or (num_peaks, 2).')
+            raise ValueError(
+                "Spectrum must have shape (2, num_peaks) or (num_peaks, 2)."
+            )
         if s.shape[0] != 2:
             s = s.T
 
@@ -525,13 +552,29 @@ def plot_spectrum(
 
     if fast_path:
         ax.vlines(mzs, 0, ins, colors=colors[0], zorder=2)
-        ax.scatter(mzs, ins, edgecolors=colors[0], facecolors='white', zorder=3, linewidths=0.8, s=16)
+        ax.scatter(
+            mzs,
+            ins,
+            edgecolors=colors[0],
+            facecolors="white",
+            zorder=3,
+            linewidths=0.8,
+            s=16,
+        )
 
         if mirror_spec is not None:
             mzs_m, ins_m = process_spectrum(mirror_spec)
 
             ax.vlines(mzs_m, 0, -ins_m, colors=colors[2], zorder=1)
-            ax.scatter(mzs_m, -ins_m, edgecolors=colors[2], facecolors='white', zorder=3, linewidths=0.8, s=16)
+            ax.scatter(
+                mzs_m,
+                -ins_m,
+                edgecolors=colors[2],
+                facecolors="white",
+                zorder=3,
+                linewidths=0.8,
+                s=16,
+            )
 
             @ticker.FuncFormatter
             def major_formatter(x, _pos):
@@ -545,18 +588,23 @@ def plot_spectrum(
             combined_max_mz = mzs.max()
 
         plt.xlim(0, combined_max_mz + 10)
-        plt.xlabel('m/z')
-        plt.ylabel('Intensity [%]' if normalize_intensities else 'Intensity')
+        plt.xlabel("m/z")
+        plt.ylabel("Intensity [%]" if normalize_intensities else "Intensity")
         plt.show()
         return
 
     if high_peaks_at:
-        highl_idx = [utils.get_closest_values(mzs, query_val=m, return_idx=True).item() for m in high_peaks_at]
+        highl_idx = [
+            utils.get_closest_values(mzs, query_val=m, return_idx=True).item()
+            for m in high_peaks_at
+        ]
 
     # Setup color palette
     if hue is not None:
         if len(hue) != len(mzs):
-            raise ValueError('Length of hue must be equal to the number of peaks in the spectrum.')
+            raise ValueError(
+                "Length of hue must be equal to the number of peaks in the spectrum."
+            )
         norm = matplotlib.colors.Normalize(vmin=min(hue), vmax=max(hue), clip=True)
         mapper = cm.ScalarMappable(norm=norm, cmap=cm.cool)
         plt.colorbar(mapper, ax=ax)
@@ -569,7 +617,15 @@ def plot_spectrum(
             color = mcolors.to_hex(mapper.to_rgba(hue[i]))
         else:
             color = colors[0]
-        plt.plot([mzs[i], mzs[i]], [0, ins[i]], color=color, marker='o', markevery=(1, 2), mfc='white', zorder=2)
+        plt.plot(
+            [mzs[i], mzs[i]],
+            [0, ins[i]],
+            color=color,
+            marker="o",
+            markevery=(1, 2),
+            mfc="white",
+            zorder=2,
+        )
 
     # Plot mirror spectrum
     if mirror_spec is not None:
@@ -581,8 +637,15 @@ def plot_spectrum(
             return label
 
         for i in range(len(mzs_m)):
-            plt.plot([mzs_m[i], mzs_m[i]], [0, -ins_m[i]], color=colors[2], marker='o', markevery=(1, 2), mfc='white',
-                     zorder=1)
+            plt.plot(
+                [mzs_m[i], mzs_m[i]],
+                [0, -ins_m[i]],
+                color=colors[2],
+                marker="o",
+                markevery=(1, 2),
+                mfc="white",
+                zorder=1,
+            )
         ax.yaxis.set_major_formatter(major_formatter)
 
     # Setup axes
@@ -592,20 +655,38 @@ def plot_spectrum(
         plt.xlim(0, max(mzs) + 10)
     if ylim is not None:
         plt.ylim(ylim[0], ylim[1])
-    plt.xlabel('m/z')
-    plt.ylabel('Intensity [%]' if normalize_intensities else 'Intensity')
+    plt.xlabel("m/z")
+    plt.ylabel("Intensity [%]" if normalize_intensities else "Intensity")
 
     # Add precursor m/z annotations
     if prec_mz is not None or spec_text is not None:
-        text = f'Precursor m/z: {prec_mz:.2f}' if prec_mz is not None else ''
-        text += f'{spec_text}' if spec_text is not None else ''
-        ax.text(0.05, 0.95, text, transform=ax.transAxes,
-                fontsize=10, verticalalignment='top', horizontalalignment='left', bbox=dict(facecolor='white', alpha=0.4))
+        text = f"Precursor m/z: {prec_mz:.2f}" if prec_mz is not None else ""
+        text += f"{spec_text}" if spec_text is not None else ""
+        ax.text(
+            0.05,
+            0.95,
+            text,
+            transform=ax.transAxes,
+            fontsize=10,
+            verticalalignment="top",
+            horizontalalignment="left",
+            bbox=dict(facecolor="white", alpha=0.4),
+        )
     if mirror_prec_mz is not None or mirror_spec_text is not None:
-        text = f'Precursor m/z: {mirror_prec_mz:.2f}' if mirror_prec_mz is not None else ''
-        text += f'{mirror_spec_text}' if mirror_spec_text is not None else ''
-        ax.text(0.05, 0.05, text, transform=ax.transAxes,
-                fontsize=10, verticalalignment='bottom', horizontalalignment='left', bbox=dict(facecolor='white', alpha=0.4))
+        text = (
+            f"Precursor m/z: {mirror_prec_mz:.2f}" if mirror_prec_mz is not None else ""
+        )
+        text += f"{mirror_spec_text}" if mirror_spec_text is not None else ""
+        ax.text(
+            0.05,
+            0.05,
+            text,
+            transform=ax.transAxes,
+            fontsize=10,
+            verticalalignment="bottom",
+            horizontalalignment="left",
+            bbox=dict(facecolor="white", alpha=0.4),
+        )
 
     if save_pth is not None:
         save_fig(save_pth)
@@ -618,16 +699,19 @@ def df_to_MSnSpectra(df, assert_is_valid=True, as_new_column=False):
     # TODO: include more columns.
     """
 
-    msn_spectra = df.apply(lambda row: MSnSpectrum(
-        peak_list=row['PARSED PEAKS'],
-        precursor_mol=row['ROMol'] if 'ROMol' in df.columns else None,
-        precursor_mz=row['PRECURSOR M/Z'],
-        precursor_charge=row['CHARGE'],
-        assert_is_valid=assert_is_valid
-    ), axis=1)
+    msn_spectra = df.apply(
+        lambda row: MSnSpectrum(
+            peak_list=row["PARSED PEAKS"],
+            precursor_mol=row["ROMol"] if "ROMol" in df.columns else None,
+            precursor_mz=row["PRECURSOR M/Z"],
+            precursor_charge=row["CHARGE"],
+            assert_is_valid=assert_is_valid,
+        ),
+        axis=1,
+    )
 
     if as_new_column:
-        df['MSnSpectrum'] = msn_spectra
+        df["MSnSpectrum"] = msn_spectra
         return df
     else:
         return msn_spectra
@@ -648,30 +732,32 @@ def to_classes(
     vals: torch.Tensor,
     max_val: float,
     bin_size: float,
-    special_vals: List[float] = (),
-    return_num_classes: bool = False
-) -> torch.Tensor:
-    """ Assumes that last dimension of mzs is singleton. """
+    special_vals: List[float] = [],
+    return_num_classes: bool = False,
+) -> torch.Tensor | tuple[torch.Tensor, int]:
+    """Assumes that last dimension of mzs is singleton."""
     special_masks = [vals == v for v in special_vals]
     num_classes = num_hot_classes(max_val, bin_size)
     classes = torch.round(vals / bin_size).long()
-    classes = classes.clamp(max=num_classes - 1)  # clamp not to have a separate class for max_mz
+    classes = classes.clamp(
+        max=num_classes - 1
+    )  # clamp not to have a separate class for max_mz
     for i, m in enumerate(special_masks):
         classes[m] = num_classes + i
-    # if return_num_classes:
-    #     return classes, num_classes + len(special_vals)
+    if return_num_classes:
+         return classes, num_classes + len(special_vals)
     return classes
 
 
 def to_hot(vals: torch.Tensor, max_val: float, bin_size: float, dtype=torch.double):
-    """ Assumes that last dimension of mzs is singleton. """
+    """Assumes that last dimension of mzs is singleton."""
     classes, num_classes = to_classes(vals, max_val, bin_size, return_num_classes=True)
     hots = F.one_hot(classes, num_classes=num_classes)
     return hots.squeeze(dim=-2).to(dtype)
 
 
 def from_hot(hots: torch.Tensor, bin_size: float, dtype=torch.double) -> torch.Tensor:
-    """ Makes the last dimension singleton. """
+    """Makes the last dimension singleton."""
     vals = torch.argmax(hots, dim=-1) * bin_size
     return vals.unsqueeze(-1).to(dtype)
 
@@ -687,22 +773,35 @@ class PeakListModifiedCosine:
         self.unpad = unpad
 
     def _peak_list_to_matchms(self, peak_list: np.ndarray, prec_mz: float) -> Spectrum:
-        assert peak_list.shape[0] == 2, 'Peak list must have shape (2, num. of peaks).'
+        assert peak_list.shape[0] == 2, "Peak list must have shape (2, num. of peaks)."
         if self.unpad:
             peak_list = unpad_peak_list(peak_list)
-        return Spectrum(mz=peak_list[0], intensities=peak_list[1], metadata={'precursor_mz': prec_mz})
+        return Spectrum(
+            mz=peak_list[0],
+            intensities=peak_list[1],
+            metadata={"precursor_mz": prec_mz},
+        )
 
-    def compute(self, spec1: np.ndarray, spec2: np.ndarray, prec_mz1: float, prec_mz2: float) -> float:
+    def compute(
+        self, spec1: np.ndarray, spec2: np.ndarray, prec_mz1: float, prec_mz2: float
+    ) -> float:
         spec1 = self._peak_list_to_matchms(spec1, prec_mz1)
         spec2 = self._peak_list_to_matchms(spec2, prec_mz2)
-        return self.cos_sim.pair(spec1, spec2)['score'].item()
+        return self.cos_sim.pair(spec1, spec2)["score"].item()
 
-    def __call__(self, spec1: np.ndarray, spec2: np.ndarray, prec_mz1: float, prec_mz2: float) -> float:
+    def __call__(
+        self, spec1: np.ndarray, spec2: np.ndarray, prec_mz1: float, prec_mz2: float
+    ) -> float:
         return self.compute(spec1, spec2, prec_mz1, prec_mz2)
 
-    def compute_pairwise(self, specs: np.ndarray, prec_mzs: np.ndarray, avg=False) -> Union[np.ndarray, float]:
-        specs = [self._peak_list_to_matchms(spec, float(prec_mz)) for spec, prec_mz in zip(specs, prec_mzs)]
-        sims = self.cos_sim.matrix(specs, specs, is_symmetric=True)['score']
+    def compute_pairwise(
+        self, specs: np.ndarray, prec_mzs: np.ndarray, avg=False
+    ) -> Union[np.ndarray, float]:
+        specs = [
+            self._peak_list_to_matchms(spec, float(prec_mz))
+            for spec, prec_mz in zip(specs, prec_mzs)
+        ]
+        sims = self.cos_sim.matrix(specs, specs, is_symmetric=True)["score"]
         if avg:
             return sims.mean().item()
         return sims
