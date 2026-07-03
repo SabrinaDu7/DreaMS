@@ -149,3 +149,5 @@ __pycache__
 
 # Personal
 wandb_api.txt
+dreams/wandb/*
+nibi_connect.py

@@ -12,6 +12,11 @@
 
 set -euo pipefail
 
+# Avoid a cluster-loaded Python/SciPy module's PYTHONPATH leaking a different
+# numpy into the venv's Python and breaking rdkit's compiled ABI
+# (`_ARRAY_API not found`).
+unset PYTHONPATH
+
 # --- Config ---------------------------------------------------------------
 # Persistent clone of this repo.
 REPO_DIR="${HOME}/experiments/DreaMS"
