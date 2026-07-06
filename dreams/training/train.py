@@ -265,12 +265,14 @@ def main(args):
                         # (fp_maccs_166) are derived from SMILES on the fly by LabeledSpectraDataset.
                         msdata = du.MSData(pth, in_mem=True)
                         cols = msdata.columns()
-                        for req in (FOLD, du.SMILES):
-                            if req not in cols:
-                                raise ValueError(
-                                    f'Probing dataset "{pth}" is missing the "{req}" column (has: {sorted(cols)}). '
-                                    f'It needs a "{FOLD}" (train/val/test) split and a "{du.SMILES}" column.'
-                                )
+                        # Resolve column names case-insensitively (e.g. MassSpecGym uses uppercase `FOLD`).
+                        fold_col = next((c for c in cols if c.lower() == FOLD), None)
+                        smiles_col = next((c for c in cols if c.lower() == du.SMILES), None)
+                        if fold_col is None or smiles_col is None:
+                            raise ValueError(
+                                f'Probing dataset "{pth}" needs a "{FOLD}" (train/val/test) split and a '
+                                f'"{du.SMILES}" column (case-insensitive); has: {sorted(cols)}.'
+                            )
                         probing_data_module = du.SplittedDataModule(
                             msdata.to_torch_dataset(
                                 spec_preproc=spec_preproc,
@@ -278,7 +280,7 @@ def main(args):
                                 dformat=args.dformat,
                                 return_smiles=args.store_probing_pred
                             ),
-                            split_mask=pd.Series(msdata.get_values(FOLD)),
+                            split_mask=pd.Series(msdata.get_values(fold_col)),
                             batch_size=64,
                             n_train_samples=n_train,
                             seed=args.seed
