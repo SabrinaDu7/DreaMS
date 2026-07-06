@@ -258,21 +258,52 @@ def main(args):
             # Define SSL probling callback
             if args.ssl_probing_dataset_pths:
                 for pth in args.ssl_probing_dataset_pths:
-                    df = pd.read_pickle(pth)
-                    probing_data_module = du.SplittedDataModule(
-                        du.AnnotatedSpectraDataset(
-                            df['MSnSpectrum'].tolist(),
-                            label='fp_maccs_166',
-                            spec_preproc=spec_preproc,
-                            dformat=args.dformat,
-                            return_smiles=args.store_probing_pred
-                        ),
-                        split_mask=df['val'] if 'val' in df.columns else df['fold'],
-                        batch_size=64
-                    )
+                    n_train = args.ssl_probing_n_train_samples or None
+                    if pth.suffix == '.hdf5':
+                        # Labeled MS/MS spectra with known structures (e.g. MassSpecGym) stored as an
+                        # MSData .hdf5 with a `fold` (train/val/test) split column. Fingerprint labels
+                        # (fp_maccs_166) are derived from SMILES on the fly by LabeledSpectraDataset.
+                        msdata = du.MSData(pth, in_mem=True)
+                        cols = msdata.columns()
+                        for req in (FOLD, du.SMILES):
+                            if req not in cols:
+                                raise ValueError(
+                                    f'Probing dataset "{pth}" is missing the "{req}" column (has: {sorted(cols)}). '
+                                    f'It needs a "{FOLD}" (train/val/test) split and a "{du.SMILES}" column.'
+                                )
+                        probing_data_module = du.SplittedDataModule(
+                            msdata.to_torch_dataset(
+                                spec_preproc=spec_preproc,
+                                label='fp_maccs_166',
+                                dformat=args.dformat,
+                                return_smiles=args.store_probing_pred
+                            ),
+                            split_mask=pd.Series(msdata.get_values(FOLD)),
+                            batch_size=64,
+                            n_train_samples=n_train,
+                            seed=args.seed
+                        )
+                    else:
+                        df = pd.read_pickle(pth)
+                        probing_data_module = du.SplittedDataModule(
+                            du.AnnotatedSpectraDataset(
+                                df['MSnSpectrum'].tolist(),
+                                label='fp_maccs_166',
+                                spec_preproc=spec_preproc,
+                                dformat=args.dformat,
+                                return_smiles=args.store_probing_pred
+                            ),
+                            split_mask=df['val'] if 'val' in df.columns else df['fold'],
+                            batch_size=64,
+                            n_train_samples=n_train,
+                            seed=args.seed
+                        )
                     callbacks.append(
-                        du.SSLProbingValidation(probing_data_module, n_hidden_layers=args.ssl_probing_depth, prefix=pth.stem,
-                                                save_fps_dir=args.gains_dir / 'probing' if args.store_probing_pred else None)
+                        du.SSLProbingValidation(
+                            probing_data_module, n_hidden_layers=args.ssl_probing_depth, prefix=pth.stem,
+                            n_epochs=args.ssl_probing_n_epochs, probing_batch_freq=args.ssl_probing_batch_freq,
+                            save_fps_dir=args.gains_dir / 'probing' if args.store_probing_pred else None
+                        )
                     )
 
         # Define trainer

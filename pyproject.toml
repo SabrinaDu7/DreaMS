@@ -42,6 +42,7 @@ dependencies = [
     "setuptools>=81.0.0",
     "msml @ git+https://github.com/roman-bushuiev/msml_legacy_architectures.git@main",
     "hdf5plugin>=7.0.0",
+    "pypatree>=0.4.0",
 ]
 
 [project.urls]

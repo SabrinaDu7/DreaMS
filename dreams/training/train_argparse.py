@@ -113,6 +113,13 @@ def parse_args():
                                                                      'probing.')
     parser.add_argument('--ssl_probing_depth', default=[0], help='Either int or list of ints (e.g. [0, 1, 2]).')
     parser.add_argument('--store_probing_pred', action='store_true')
+    parser.add_argument('--ssl_probing_n_train_samples', type=int, default=5000,
+                        help='Subsample the probing train fold to this many spectra to bound cost (the probe '
+                             're-embeds the whole fold every probe epoch). None/0 uses the full fold.')
+    parser.add_argument('--ssl_probing_n_epochs', type=int, default=30,
+                        help='Number of epochs to train the linear probe each time it fires.')
+    parser.add_argument('--ssl_probing_batch_freq', type=int, default=2500,
+                        help='Run the probe every N training batches (defines the x-axis resolution of the curve).')
 
     # Trainer
     parser.add_argument('--retrieval_val_pth', type=Path)

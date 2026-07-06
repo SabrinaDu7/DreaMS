@@ -2027,7 +2027,8 @@ class SplittedDataModule(pl.LightningDataModule):
         # Sample random n_train_samples
         if self.n_train_samples:
             assert self.n_train_samples <= len(self.train_subset), 'n_train_samples is larger than the dataset size.'
-            random.seed(seed.seed)
+            if self.seed is not None:
+                random.seed(self.seed)
             rand_idx = random.sample(list(range(len(self.train_subset))), self.n_train_samples)
             self.train_subset = Subset(self.train_subset, rand_idx)
 

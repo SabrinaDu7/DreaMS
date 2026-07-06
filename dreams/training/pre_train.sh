@@ -17,6 +17,11 @@ set -euo pipefail
 # (`_ARRAY_API not found`).
 unset PYTHONPATH
 
+# sbatch batch scripts run as non-interactive, non-login shells and don't
+# source ~/.bash_profile, so PATH additions there (like uv's install dir)
+# aren't picked up otherwise ("uv: command not found").
+export PATH="$HOME/.local/bin:$PATH"
+
 # --- Config ---------------------------------------------------------------
 # Persistent clone of this repo.
 REPO_DIR="${HOME}/experiments/DreaMS"
@@ -24,9 +29,15 @@ REPO_DIR="${HOME}/experiments/DreaMS"
 # Persistent location of the pre-training dataset (lives outside the repo).
 DATASET_SRC="${SCRATCH}/datasets/gems/GeMS_A10.hdf5"
 
+# Persistent location of the labeled probing dataset used to log the "molecular
+# structure emerges" curve (Fig 3c) via a linear MACCS-fingerprint probe.
+# It must contain `fold` (train/val/test) and `smiles` columns.
+PROBING_SRC="${SCRATCH}/datasets/gems/MassSpecGym_DreaMS.hdf5"
+
 # Fast node-local copies used for the run.
 RUN_REPO_DIR="${SLURM_TMPDIR}/DreaMS"
 RUN_DATASET_PTH="${SLURM_TMPDIR}/GeMS_A10.hdf5"
+RUN_PROBING_PTH="${SLURM_TMPDIR}/MassSpecGym_DreaMS.hdf5"
 
 project_name="dreams"
 job_key="${SLURM_JOB_ID}_$(date +'%m-%d_%H-%M')"
@@ -41,6 +52,12 @@ fi
 # --- Copy repo and dataset to node-local storage for speed ---
 rsync -a --exclude='.git' --exclude='.venv' "${REPO_DIR}/" "${RUN_REPO_DIR}/"
 cp "${DATASET_SRC}" "${RUN_DATASET_PTH}"
+if [ ! -s "${PROBING_SRC}" ]; then
+    echo "Probing dataset not found: ${PROBING_SRC}" >&2
+    echo "Download it with: uv run python -c \"from dreams.utils.misc import gems_hf_download; import shutil; shutil.copy(gems_hf_download('auxiliary/MassSpecGym_DreaMS.hdf5'), '${PROBING_SRC}')\"" >&2
+    exit 1
+fi
+cp "${PROBING_SRC}" "${RUN_PROBING_PTH}"
 cd "${RUN_REPO_DIR}"
 
 # --- Build env locally and activate it ---
@@ -132,6 +149,10 @@ uv run training/train.py \
  --mask_intens_strategy intens_p \
  --max_peaks_n 60 \
  --ssl_probing_depth 0 \
+ --ssl_probing_dataset_pths "${RUN_PROBING_PTH}" \
+ --ssl_probing_n_train_samples 5000 \
+ --ssl_probing_n_epochs 30 \
+ --ssl_probing_batch_freq 2500 \
  --focal_loss_gamma 5 \
  --no_transformer_bias \
  --n_warmup_steps 5000 \
